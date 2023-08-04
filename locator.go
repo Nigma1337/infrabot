@@ -57,14 +57,14 @@ func (l *locator) locate(ipstr string) *Location {
 	}
 }
 
-func (l *locator) checkGCP(IP net.IP) (bool, error) {
+func (l *locator) checkGCP(rawip net.IP) (bool, error) {
 	var p fastjson.Parser
 	const url = "https://www.gstatic.com/ipranges/cloud.json"
 	res, err := http.Get(url)
-	defer res.Body.Close()
 	if err != nil {
 		return false, err
 	}
+	defer res.Body.Close()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return false, err
@@ -80,10 +80,10 @@ func (l *locator) checkGCP(IP net.IP) (bool, error) {
 			// Might be ipv6 only instance/service
 			continue
 		}
-		_, ipnetA, _ := net.ParseCIDR(string(ip[:]))
-		if ipnetA.Contains(IP) {
+		_, ipnetA, _ := net.ParseCIDR(string(ip))
+		if ipnetA.Contains(rawip) {
 			region := string(element.GetStringBytes("scope"))
-			loc := Location{Region: region, IP: IP, cloud: "GCP", Error: nil}
+			loc := Location{Region: region, IP: rawip, cloud: "GCP", Error: nil}
 			if l.ch != nil {
 				l.ch <- loc
 				close(l.ch)
@@ -94,14 +94,14 @@ func (l *locator) checkGCP(IP net.IP) (bool, error) {
 	return false, nil
 }
 
-func (l *locator) checkAWS(IP net.IP) (bool, error) {
+func (l *locator) checkAWS(rawip net.IP) (bool, error) {
 	var p fastjson.Parser
 	const url = "https://ip-ranges.amazonaws.com/ip-ranges.json"
 	res, err := http.Get(url)
-	defer res.Body.Close()
 	if err != nil {
 		return false, err
 	}
+	defer res.Body.Close()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return false, err
@@ -113,10 +113,10 @@ func (l *locator) checkAWS(IP net.IP) (bool, error) {
 	prefixes := json.GetArray("prefixes")
 	for _, element := range prefixes {
 		ip := element.GetStringBytes("ip_prefix")
-		_, ipnetA, _ := net.ParseCIDR(string(ip[:]))
-		if ipnetA.Contains(IP) {
+		_, ipnetA, _ := net.ParseCIDR(string(ip))
+		if ipnetA.Contains(rawip) {
 			region := string(element.GetStringBytes("region"))
-			loc := Location{Region: region, IP: IP, cloud: "AWS", Error: nil}
+			loc := Location{Region: region, IP: rawip, cloud: "AWS", Error: nil}
 			if l.ch != nil {
 				l.ch <- loc
 				close(l.ch)
@@ -128,13 +128,13 @@ func (l *locator) checkAWS(IP net.IP) (bool, error) {
 	return false, nil
 }
 
-func (l *locator) checkDO(IP net.IP) (bool, error) {
+func (l *locator) checkDO(rawip net.IP) (bool, error) {
 	const url = "https://digitalocean.com/geo/google.csv"
 	res, err := http.Get(url)
-	defer res.Body.Close()
 	if err != nil {
 		return false, err
 	}
+	defer res.Body.Close()
 	reader := csv.NewReader(res.Body)
 	for {
 		record, err := reader.Read()
@@ -145,9 +145,9 @@ func (l *locator) checkDO(IP net.IP) (bool, error) {
 			return false, err
 		}
 		_, ipnetA, _ := net.ParseCIDR(record[0])
-		if ipnetA.Contains(IP) {
+		if ipnetA.Contains(rawip) {
 			region := record[2]
-			loc := Location{Region: region, IP: IP, cloud: "DO", Error: nil}
+			loc := Location{Region: region, IP: rawip, cloud: "DO", Error: nil}
 			if l.ch != nil {
 				l.ch <- loc
 				close(l.ch)
@@ -158,14 +158,14 @@ func (l *locator) checkDO(IP net.IP) (bool, error) {
 	return false, nil
 }
 
-func (l *locator) checkMA(IP net.IP) (bool, error) {
+func (l *locator) checkMA(rawip net.IP) (bool, error) {
 	var p fastjson.Parser
 	const url = "https://www.microsoft.com/en-us/download/confirmation.aspx?id=56519"
 	res, err := http.Get(url)
-	defer res.Body.Close()
 	if err != nil {
 		return false, err
 	}
+	defer res.Body.Close()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return false, err
@@ -177,8 +177,8 @@ func (l *locator) checkMA(IP net.IP) (bool, error) {
 	prefixes := json.GetArray("prefixes")
 	for _, element := range prefixes {
 		ip := element.GetStringBytes("ip_prefix")
-		_, ipnetA, _ := net.ParseCIDR(string(ip[:]))
-		if ipnetA.Contains(IP) {
+		_, ipnetA, _ := net.ParseCIDR(string(ip))
+		if ipnetA.Contains(rawip) {
 			return true, nil
 		}
 	}
