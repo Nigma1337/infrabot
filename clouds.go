@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	b64 "encoding/base64"
 	"fmt"
-	"log"
 	"sort"
 	"time"
 
@@ -17,9 +17,14 @@ import (
 	"github.com/hetznercloud/hcloud-go/hcloud"
 )
 
+type awooga struct {
+	*ec2.Client
+	sg string
+}
+
 type clouds struct {
 	Hetzner   *hcloud.Client
-	Aws       *ec2.Client
+	Aws       awooga
 	Avaliable []string
 }
 
@@ -122,15 +127,23 @@ func (c *clouds) spawnResponseAWS(ctx context.Context, data cmdroute.ComponentDa
 		t2, _ := time.Parse("2006-01-02T15:04:05Z", *images.Images[j].CreationDate)
 		return t1.Unix() < t2.Unix()
 	})
-	for _, image := range images.Images {
-		log.Printf("%s", *image.CreationDate)
-	}
 	ami := images.Images[len(images.Images)-1].ImageId
+
+	password, err := GenerateRandomString(32)
+	if err != nil {
+		panic(err)
+	}
+	UserData := b64.StdEncoding.EncodeToString([]byte(fmt.Sprintf(`#!/bin/bash
+	sed 's/PasswordAuthentication no/PasswordAuthentication yes/' -i /etc/ssh/sshd_config
+	systemctl restart sshd
+	echo "ubuntu:%s" | chpasswd`, password)))
 	runInstancesOutput, err := c.Aws.RunInstances(context.Background(), &ec2.RunInstancesInput{
-		MinCount:     aws.Int32(1),
-		MaxCount:     aws.Int32(1),
-		ImageId:      ami,
-		InstanceType: types.InstanceTypeT3Medium,
+		MinCount:       aws.Int32(1),
+		MaxCount:       aws.Int32(1),
+		ImageId:        ami,
+		InstanceType:   types.InstanceTypeT3Medium,
+		UserData:       &UserData,
+		SecurityGroups: []string{c.Aws.sg},
 	})
 	if err != nil {
 		panic(err.Error())
@@ -146,8 +159,8 @@ func (c *clouds) spawnResponseAWS(ctx context.Context, data cmdroute.ComponentDa
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(describeInstancesOutput.Reservations[0].Instances[0].PublicIpAddress)
-	return c.spawnResponse(*describeInstancesOutput.Reservations[0].Instances[0].PublicIpAddress, "pee")
+	fmt.Println(*describeInstancesOutput.Reservations[0].Instances[0].PublicIpAddress)
+	return c.spawnResponse(*describeInstancesOutput.Reservations[0].Instances[0].PublicIpAddress, password)
 }
 
 func (c *clouds) spawnResponse(ip string, password string) *api.InteractionResponse {

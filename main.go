@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"os/signal"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/api/cmdroute"
 	"github.com/diamondburned/arikawa/v3/discord"
@@ -73,6 +76,20 @@ func BoolPointer(b bool) *bool {
 	return &b
 }
 
+func GenerateRandomString(n int) (string, error) {
+	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	ret := make([]byte, n)
+	for i := 0; i < n; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		ret[i] = letters[num.Int64()]
+	}
+
+	return string(ret), nil
+}
+
 func main() {
 	// https://discord.com/oauth2/authorize?client_id=1093259327353143366&scope=bot&permissions=2147552320
 	viper.SetConfigName("config")
@@ -131,7 +148,7 @@ func newHandler(s *state.State) *handler {
 	h.AddFunc("locate", h.cmdLocate)
 	h.AddFunc("spawn", h.cmdSpawn)
 	h.AddComponentFunc("spawn_hetzner", h.provider.spawnResponseHetzner)
-	h.AddComponentFunc("spawnn_aws", h.provider.spawnResponseAWS)
+	h.AddComponentFunc("spawn_aws", h.provider.spawnResponseAWS)
 	h.AddComponentFunc("cloud", h.handleCloudSelect)
 	h.AddComponentFunc("region", h.handleRegionSelect)
 	return h
@@ -159,7 +176,34 @@ func initClouds() *clouds {
 			if err != nil {
 				panic(err)
 			}
-			providers.Aws = ec2.NewFromConfig(config)
+			client := ec2.NewFromConfig(config)
+			describeRes, err := client.DescribeSecurityGroups(context.Background(), &ec2.DescribeSecurityGroupsInput{
+				GroupNames: []string{"AllowAllLol"},
+			})
+			if err != nil {
+				panic(err)
+			}
+			if len(describeRes.SecurityGroups) == 0 {
+				createRes, err := client.CreateSecurityGroup(context.Background(), &ec2.CreateSecurityGroupInput{
+					GroupName:   aws.String("AllowAllLol"),
+					Description: aws.String("Allows all traffic"),
+				})
+				if err != nil {
+					panic(err)
+				}
+				IngressInput := ec2.AuthorizeSecurityGroupIngressInput{
+					CidrIp:     aws.String("0.0.0.0/0"),
+					FromPort:   aws.Int32(22),
+					ToPort:     aws.Int32(22),
+					IpProtocol: aws.String("tcp"),
+					GroupId:    createRes.GroupId,
+				}
+				_, err = client.AuthorizeSecurityGroupIngress(context.Background(), &IngressInput)
+				if err != nil {
+					panic(err)
+				}
+			}
+			providers.Aws = awooga{client, "AllowAllLol"}
 			_, err = providers.Aws.DescribeInstances(context.Background(), nil)
 			if err != nil {
 				panic(err)
