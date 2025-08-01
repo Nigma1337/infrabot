@@ -3,16 +3,18 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
 	"os"
 	"os/signal"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/smithy-go"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/api/cmdroute"
 	"github.com/diamondburned/arikawa/v3/discord"
@@ -23,38 +25,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// To run, do `BOT_TOKEN="TOKEN HERE" go run .`
-
-var ROOT_SSH = hcloud.SSHKey{
-	ID:        6321437,
-	Name:      "mgs",
-	PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINkbG0iV8nP6SRZub/w104jhbZUmAxX6ClHzKJWoX4lI ",
-}
-
-var ROOT_SSH_ARRAY = []*hcloud.SSHKey{
-	&ROOT_SSH,
-}
-
 var commands = []api.CreateCommandData{
-	{
-		Name:        "ping",
-		Description: "ping pong!",
-	},
-	{
-		Name:        "echo",
-		Description: "echo back the argument",
-		Options: []discord.CommandOption{
-			&discord.StringOption{
-				OptionName:  "argument",
-				Description: "what's echoed back",
-				Required:    true,
-			},
-		},
-	},
-	{
-		Name:        "thonk",
-		Description: "biiiig thonk",
-	},
 	{
 		Name:        "locate",
 		Description: "locate a server",
@@ -148,7 +119,9 @@ func newHandler(s *state.State) *handler {
 	h.AddFunc("locate", h.cmdLocate)
 	h.AddFunc("spawn", h.cmdSpawn)
 	h.AddComponentFunc("spawn_hetzner", h.provider.spawnResponseHetzner)
+	h.AddComponentFunc("destroy_hetzner", h.provider.deleteHetzner)
 	h.AddComponentFunc("spawn_aws", h.provider.spawnResponseAWS)
+	h.AddComponentFunc("destroy_aws", h.provider.deleteAWS)
 	h.AddComponentFunc("cloud", h.handleCloudSelect)
 	h.AddComponentFunc("region", h.handleRegionSelect)
 	return h
@@ -168,7 +141,7 @@ func initClouds() *clouds {
 			providers.Hetzner = hcloud.NewClient(hcloud.WithToken(token))
 			providers.Avaliable = append(providers.Avaliable, "hetzner")
 		case "gcp":
-			fmt.Println("gcp")
+			log.Println("Tried to init gcp, but it's not implemented yet.")
 		case "aws":
 			creds := credentials.NewStaticCredentialsProvider(configuredClouds.GetString("aws.AWS_ACCESS_KEY_ID"), configuredClouds.GetString("aws.AWS_SECRET_ACCESS_KEY"), "")
 			region := configuredClouds.GetString("aws.AWS_REGION")
@@ -177,48 +150,51 @@ func initClouds() *clouds {
 				panic(err)
 			}
 			client := ec2.NewFromConfig(config)
-			describeRes, err := client.DescribeSecurityGroups(context.Background(), &ec2.DescribeSecurityGroupsInput{
-				GroupNames: []string{"AllowAllLol"},
+			_, err = client.DescribeSecurityGroups(context.Background(), &ec2.DescribeSecurityGroupsInput{
+				GroupNames: []string{"AllowAll"},
 			})
 			if err != nil {
-				panic(err)
+				var ae smithy.APIError
+				if errors.As(err, &ae) {
+					if ae.ErrorCode() != "InvalidGroup.NotFound" {
+						panic(err)
+					}
+					createRes, err := client.CreateSecurityGroup(context.Background(), &ec2.CreateSecurityGroupInput{
+						GroupName:   aws.String("AllowAll"),
+						Description: aws.String("Allows all traffic"),
+					})
+					if err != nil {
+						panic(err)
+					}
+					IngressInput := ec2.AuthorizeSecurityGroupIngressInput{
+						CidrIp:     aws.String("0.0.0.0/0"),
+						FromPort:   aws.Int32(22),
+						ToPort:     aws.Int32(22),
+						IpProtocol: aws.String("tcp"),
+						GroupId:    createRes.GroupId,
+					}
+					_, err = client.AuthorizeSecurityGroupIngress(context.Background(), &IngressInput)
+					if err != nil {
+						panic(err)
+					}
+				}
 			}
-			if len(describeRes.SecurityGroups) == 0 {
-				createRes, err := client.CreateSecurityGroup(context.Background(), &ec2.CreateSecurityGroupInput{
-					GroupName:   aws.String("AllowAllLol"),
-					Description: aws.String("Allows all traffic"),
-				})
-				if err != nil {
-					panic(err)
-				}
-				IngressInput := ec2.AuthorizeSecurityGroupIngressInput{
-					CidrIp:     aws.String("0.0.0.0/0"),
-					FromPort:   aws.Int32(22),
-					ToPort:     aws.Int32(22),
-					IpProtocol: aws.String("tcp"),
-					GroupId:    createRes.GroupId,
-				}
-				_, err = client.AuthorizeSecurityGroupIngress(context.Background(), &IngressInput)
-				if err != nil {
-					panic(err)
-				}
-			}
-			providers.Aws = awooga{client, "AllowAllLol"}
+			providers.Aws = awooga{client, "AllowAll"}
 			_, err = providers.Aws.DescribeInstances(context.Background(), nil)
 			if err != nil {
 				panic(err)
 			}
 			providers.Avaliable = append(providers.Avaliable, "aws")
 		case "azure":
-			fmt.Println("azure")
+			log.Println("Tried to init azure, but it's not implemented yet.")
 		}
 	}
+	log.Printf("Cloud providers initialized: %v", providers.Avaliable)
 	return &providers
 }
 
 func (h *handler) handleCloudSelect(ctx context.Context, data cmdroute.ComponentData) *api.InteractionResponse {
 	value := data.Event.Data.(*discord.StringSelectInteraction).Values[0]
-	log.Println(value)
 	opts, regions := h.getCloudSelection(value, "")
 	resp := api.InteractionResponse{
 		Type: api.UpdateMessage,
@@ -270,7 +246,9 @@ func (h *handler) cmdLocate(ctx context.Context, data cmdroute.CommandData) *api
 	}
 	location := h.l.locate(options.Arg)
 	return &api.InteractionResponseData{
-		Content: option.NewNullableString(location.Region),
+		Content: option.NewNullableString(
+			fmt.Sprintf("%s was found in %s on %s", options.Arg, location.Region, location.cloud),
+		),
 	}
 }
 
@@ -284,7 +262,7 @@ func (h *handler) cmdSpawn(ctx context.Context, data cmdroute.CommandData) *api.
 			&discord.ActionRowComponent{
 				&discord.ButtonComponent{
 					Label:    "Spawn",
-					CustomID: discord.ComponentID("aws_hetzner"), // hetzner is default cloud
+					CustomID: discord.ComponentID("spawn_hetzner"), // hetzner is default cloud
 					Style:    discord.SuccessButtonStyle(),
 				},
 			},

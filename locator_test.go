@@ -18,7 +18,6 @@ func TestCheckGCP(t *testing.T) {
 		t.Errorf("Got error when not expected")
 		return
 	}
-	fmt.Println("fart")
 	if !res {
 		fmt.Println(res)
 		t.Errorf("GCP didn't find ip!; should've been found")
@@ -61,5 +60,19 @@ func TestCheckDO(t *testing.T) {
 	}
 }
 func TestCheckMA(t *testing.T) {
-
+	ip := net.ParseIP("4.221.116.6")
+	if ip == nil {
+		t.Errorf("Couldn't parse ip")
+		return
+	}
+	l := locator{}
+	res, err := l.checkMA(ip)
+	if err != nil {
+		t.Errorf("Got error when not expected")
+		return
+	}
+	if !res {
+		t.Errorf("MA didn't find ip!; should've been found")
+		return
+	}
 }

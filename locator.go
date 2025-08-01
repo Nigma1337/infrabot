@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/patrickmn/go-cache"
@@ -160,13 +161,13 @@ func (l *locator) checkDO(rawip net.IP) (bool, error) {
 
 func (l *locator) checkMA(rawip net.IP) (bool, error) {
 	var p fastjson.Parser
-	const url = "https://www.microsoft.com/en-us/download/confirmation.aspx?id=56519"
-	res, err := http.Get(url)
+	const filePath = "azure_ips.json"
+	file, err := os.Open(filePath)
 	if err != nil {
 		return false, err
 	}
-	defer res.Body.Close()
-	data, err := io.ReadAll(res.Body)
+	defer file.Close()
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return false, err
 	}
@@ -174,12 +175,25 @@ func (l *locator) checkMA(rawip net.IP) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	prefixes := json.GetArray("prefixes")
-	for _, element := range prefixes {
-		ip := element.GetStringBytes("ip_prefix")
-		_, ipnetA, _ := net.ParseCIDR(string(ip))
-		if ipnetA.Contains(rawip) {
-			return true, nil
+	values := json.GetArray("values")
+	for _, value := range values {
+		props := value.Get("properties")
+		region := string(props.GetStringBytes("region"))
+		prefixes := props.GetArray("addressPrefixes")
+		for _, prefix := range prefixes {
+			cidr := string(prefix.GetStringBytes())
+			_, ipnet, err := net.ParseCIDR(cidr)
+			if err != nil {
+				continue
+			}
+			if ipnet.Contains(rawip) {
+				loc := Location{Region: region, IP: rawip, cloud: "Azure", Error: nil}
+				if l.ch != nil {
+					l.ch <- loc
+					close(l.ch)
+				}
+				return true, nil
+			}
 		}
 	}
 	return false, nil
