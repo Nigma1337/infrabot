@@ -76,7 +76,7 @@ func main() {
 	}
 	token := viper.GetString("discord.token")
 	if token == "" {
-		log.Fatalln("No $BOT_TOKEN given.")
+		log.Fatalln("No BOT_TOKEN given.")
 	}
 	h := newHandler(state.New("Bot " + token))
 	h.l = newLocator()
@@ -84,7 +84,7 @@ func main() {
 	h.s.AddIntents(gateway.IntentGuilds)
 	h.s.AddHandler(func(*gateway.ReadyEvent) {
 		me, _ := h.s.Me()
-		log.Println("connected to the gateway as", me.Tag())
+		log.Println("Connected to the gateway as", me.Tag())
 	})
 	if err := overwriteCommands(h.s); err != nil {
 		log.Fatalln("cannot update commands:", err)
@@ -124,6 +124,7 @@ func newHandler(s *state.State) *handler {
 	h.AddComponentFunc("destroy_aws", h.provider.deleteAWS)
 	h.AddComponentFunc("cloud", h.handleCloudSelect)
 	h.AddComponentFunc("region", h.handleRegionSelect)
+	h.AddComponentFunc("instance_type", h.handleInstanceTypeSelect)
 	return h
 }
 
@@ -195,7 +196,7 @@ func initClouds() *clouds {
 
 func (h *handler) handleCloudSelect(ctx context.Context, data cmdroute.ComponentData) *api.InteractionResponse {
 	value := data.Event.Data.(*discord.StringSelectInteraction).Values[0]
-	opts, regions := h.getCloudSelection(value, "")
+	opts, regions, instanceTypes := h.getCloudSelection(value, "", "")
 	resp := api.InteractionResponse{
 		Type: api.UpdateMessage,
 		Data: &api.InteractionResponseData{
@@ -203,6 +204,7 @@ func (h *handler) handleCloudSelect(ctx context.Context, data cmdroute.Component
 			Components: discord.ComponentsPtr(
 				opts,
 				regions,
+				instanceTypes,
 				&discord.ActionRowComponent{
 					&discord.ButtonComponent{
 						Label:    "Spawn",
@@ -217,7 +219,7 @@ func (h *handler) handleCloudSelect(ctx context.Context, data cmdroute.Component
 func (h *handler) handleRegionSelect(ctx context.Context, data cmdroute.ComponentData) *api.InteractionResponse {
 	value := data.Event.Data.(*discord.StringSelectInteraction).Values[0]
 	cloud := data.Event.Message.Components.Find("cloud").(*discord.StringSelectComponent)
-	_, regions := h.getCloudSelection(cloud.Placeholder, value)
+	_, regions, instanceTypes := h.getCloudSelection(cloud.Placeholder, value, "")
 	resp := api.InteractionResponse{
 		Type: api.UpdateMessage,
 		Data: &api.InteractionResponseData{
@@ -225,6 +227,32 @@ func (h *handler) handleRegionSelect(ctx context.Context, data cmdroute.Componen
 			Components: discord.ComponentsPtr(
 				cloud,
 				regions,
+				instanceTypes,
+				&discord.ActionRowComponent{
+					&discord.ButtonComponent{
+						Label:    "Spawn",
+						CustomID: discord.ComponentID("spawn_" + cloud.Placeholder),
+						Style:    discord.SuccessButtonStyle(),
+					},
+				}),
+		}}
+	return &resp
+}
+
+func (h *handler) handleInstanceTypeSelect(ctx context.Context, data cmdroute.ComponentData) *api.InteractionResponse {
+	value := data.Event.Data.(*discord.StringSelectInteraction).Values[0]
+	cloud := data.Event.Message.Components.Find("cloud").(*discord.StringSelectComponent)
+	instanceType := data.Event.Message.Components.Find("instance_type").(*discord.StringSelectComponent)
+	region := data.Event.Message.Components.Find("region").(*discord.StringSelectComponent)
+	_, regions, instanceType := h.getCloudSelection(cloud.Placeholder, region.Placeholder, value)
+	resp := api.InteractionResponse{
+		Type: api.UpdateMessage,
+		Data: &api.InteractionResponseData{
+			Content: option.NewNullableString("Where do you want the server, buddy?"),
+			Components: discord.ComponentsPtr(
+				cloud,
+				regions,
+				instanceType,
 				&discord.ActionRowComponent{
 					&discord.ButtonComponent{
 						Label:    "Spawn",
@@ -253,12 +281,13 @@ func (h *handler) cmdLocate(ctx context.Context, data cmdroute.CommandData) *api
 }
 
 func (h *handler) cmdSpawn(ctx context.Context, data cmdroute.CommandData) *api.InteractionResponseData {
-	opts, regions := h.getCloudSelection("", "")
+	opts, regions, instanceTypes := h.getCloudSelection("", "", "")
 	return &api.InteractionResponseData{
 		Content: option.NewNullableString("Where do you want the server, buddy?"),
 		Components: discord.ComponentsPtr(
 			opts,
 			regions,
+			instanceTypes,
 			&discord.ActionRowComponent{
 				&discord.ButtonComponent{
 					Label:    "Spawn",
@@ -270,10 +299,8 @@ func (h *handler) cmdSpawn(ctx context.Context, data cmdroute.CommandData) *api.
 	}
 }
 
-func (h *handler) getCloudSelection(cloud string, region string) (*discord.StringSelectComponent, *discord.StringSelectComponent) {
-	if region == "" {
-		region = "nowhere"
-	}
+func (h *handler) getCloudSelection(cloud string, region string, instanceType string) (*discord.StringSelectComponent, *discord.StringSelectComponent, *discord.StringSelectComponent) {
+	log.Printf("getCloudSelection called with cloud: %s, region: %s, instanceType: %s", cloud, region, instanceType)
 	return &discord.StringSelectComponent{
 			CustomID:    "cloud",
 			Options:     h.provider.getCloudOpts(cloud),
@@ -283,6 +310,11 @@ func (h *handler) getCloudSelection(cloud string, region string) (*discord.Strin
 			CustomID:    "region",
 			Options:     h.provider.getCloudRegions(cloud, region),
 			Placeholder: region,
+		},
+		&discord.StringSelectComponent{
+			CustomID:    "instance_type",
+			Options:     h.provider.getInstanceTypes(cloud, instanceType),
+			Placeholder: instanceType,
 		}
 }
 

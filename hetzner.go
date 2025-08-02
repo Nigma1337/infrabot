@@ -16,7 +16,7 @@ func (c *clouds) spawnResponseHetzner(ctx context.Context, data cmdroute.Compone
 	labels["guild"] = data.Event.GuildID.String()
 	region := data.Event.Message.Components.Find("region").(*discord.StringSelectComponent).Placeholder
 	opts := hcloud.ServerCreateOpts{
-		Name:             "awesomeboob123456",
+		Name:             data.Event.Channel.Name,
 		ServerType:       &hcloud.ServerType{ID: 104, Name: "CX22"},
 		Image:            &hcloud.Image{Name: "ubuntu-24.04"},
 		SSHKeys:          nil,

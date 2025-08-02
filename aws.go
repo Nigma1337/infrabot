@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/api/cmdroute"
+	"github.com/diamondburned/arikawa/v3/discord"
 )
 
 type awooga struct {
@@ -20,39 +20,16 @@ type awooga struct {
 }
 
 func (c *clouds) spawnResponseAWS(ctx context.Context, data cmdroute.ComponentData) *api.InteractionResponse {
-	images, err := c.Aws.DescribeImages(ctx, &ec2.DescribeImagesInput{
-		Filters: []types.Filter{
-			{
-				Name:   aws.String("owner-id"),
-				Values: []string{"099720109477"},
-			},
-			{
-				Name:   aws.String("creation-date"),
-				Values: []string{"2025*"},
-			},
-			{
-				Name:   aws.String("name"),
-				Values: []string{"ubuntu/images/hvm-ssd/ubuntu-jammy-24.04-amd64-server-*"},
-			},
-			{
-				Name:   aws.String("architecture"),
-				Values: []string{"x86_64"},
-			},
-		},
-	})
-	if err != nil {
-		panic("bad")
-	}
-	sort.Slice(images.Images, func(i, j int) bool {
-		t1, _ := time.Parse("2006-01-02T15:04:05Z", *images.Images[i].CreationDate)
-		t2, _ := time.Parse("2006-01-02T15:04:05Z", *images.Images[j].CreationDate)
-		return t1.Unix() < t2.Unix()
-	})
-	//ami := images.Images[len(images.Images)-1].ImageId
-
 	password, err := GenerateRandomString(32)
 	if err != nil {
 		panic(err)
+	}
+	instance_type := data.Event.Message.Components.Find("instance_type").(*discord.StringSelectComponent)
+	var instanceType types.InstanceType
+	if instance_type == nil || len(instance_type.Placeholder) == 0 {
+		instanceType = types.InstanceTypeT3Medium
+	} else {
+		instanceType = types.InstanceType(instance_type.Placeholder)
 	}
 	UserData := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf(`#!/bin/bash
 	sed 's/PasswordAuthentication no/PasswordAuthentication yes/' -i /etc/ssh/sshd_config
@@ -64,7 +41,7 @@ func (c *clouds) spawnResponseAWS(ctx context.Context, data cmdroute.ComponentDa
 		MaxCount: aws.Int32(1),
 		// Fetch latest ubuntu, source https://documentation.ubuntu.com/aws/aws-how-to/instances/find-ubuntu-images/
 		ImageId:        aws.String("resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"),
-		InstanceType:   types.InstanceTypeT3Medium,
+		InstanceType:   instanceType,
 		UserData:       &UserData,
 		SecurityGroups: []string{c.Aws.sg},
 		TagSpecifications: []types.TagSpecification{
@@ -78,6 +55,10 @@ func (c *clouds) spawnResponseAWS(ctx context.Context, data cmdroute.ComponentDa
 					{
 						Key:   aws.String("guild"),
 						Value: aws.String(data.Event.GuildID.String()),
+					},
+					{
+						Key:   aws.String("Name"),
+						Value: aws.String(data.Event.Channel.Name),
 					},
 				},
 			},

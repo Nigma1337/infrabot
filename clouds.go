@@ -16,6 +16,18 @@ type clouds struct {
 	Avaliable []string
 }
 
+func (c *clouds) getCloudOpts(selected string) []discord.SelectOption {
+	var res []discord.SelectOption
+	for _, cloud := range c.Avaliable {
+		if cloud == selected {
+			res = append(res, discord.SelectOption{Label: cloud, Value: cloud, Default: true})
+		} else {
+			res = append(res, discord.SelectOption{Label: cloud, Value: cloud})
+		}
+	}
+	return res
+}
+
 func (c *clouds) getCloudRegions(cloud string, region string) []discord.SelectOption {
 	var res []discord.SelectOption
 	ctx := context.Background()
@@ -48,20 +60,44 @@ func (c *clouds) getCloudRegions(cloud string, region string) []discord.SelectOp
 			}
 		}
 	}
-	if len(res) == 0 {
-		res = append(res, discord.SelectOption{Label: "nowhere", Value: ""})
-	}
 	return res
 }
 
-func (c *clouds) getCloudOpts(selected string) []discord.SelectOption {
+func (c *clouds) getInstanceTypes(cloud string, instanceType string) []discord.SelectOption {
 	var res []discord.SelectOption
-	for _, cloud := range c.Avaliable {
-		if cloud == selected {
-			res = append(res, discord.SelectOption{Label: cloud, Value: cloud, Default: true})
-		} else {
-			res = append(res, discord.SelectOption{Label: cloud, Value: cloud})
+	switch cloud {
+	case "hetzner":
+		// Hetzner only gets CX22.
+		res = append(res, discord.SelectOption{Label: "CX22", Value: "CX22", Default: true})
+	case "aws":
+		// AWS instance types can vary widely, so we will just return a few common ones.
+		awsTypes := []struct {
+			Name  string
+			Label string
+		}{
+			// General purpose instances
+			{"t3.small", "t3.small (2 vCPU, 2 GiB RAM)"},
+			{"t3.medium", "t3.medium (2 vCPU, 4 GiB RAM)"},
+			{"t3.large", "t3.large (2 vCPU, 8 GiB RAM)"},
+			{"t3.xlarge", "t3.xlarge (4 vCPU, 16 GiB RAM)"},
+			// Compute optimized instances
+			{"C7i.large", "C7i.large (2 vCPU, 4 GiB RAM)"},
+			{"C7i.xlarge", "C7i.xlarge (4 vCPU, 8 GiB RAM)"},
+			// Memory optimized instances
+			{"R7i.large", "R7i.large (2 vCPU, 16 GiB RAM)"},
+			{"R7i.xlarge", "R7i.xlarge (4 vCPU, 32 GiB RAM)"},
 		}
+		for _, t := range awsTypes {
+			if instanceType == t.Name {
+				res = append(res, discord.SelectOption{Label: t.Label, Value: t.Name, Default: true})
+				continue
+			} else {
+				res = append(res, discord.SelectOption{Label: t.Label, Value: t.Name})
+			}
+		}
+	default:
+		// Default case, no specific instance types.
+		res = append(res, discord.SelectOption{Label: "None", Value: "None"})
 	}
 	return res
 }

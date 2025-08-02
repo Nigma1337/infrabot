@@ -17,3 +17,5 @@ If you want the locator to also create Azure, you'll need to download the json w
 ## TODO
 - Finish GCP, DO and Azure
 - Instance type selection
+- Multi server support (For crypto bruting)
+- Gpu server support? (For crypto bruting)
