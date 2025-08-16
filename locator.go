@@ -38,6 +38,13 @@ func (l *locator) locate(ipstr string) *Location {
 		return x.(*Location)
 	}
 	l.ch = make(chan Location)
+	if net.ParseIP(ipstr) == nil {
+		addrs, err := net.LookupHost(ipstr)
+		if err != nil || len(addrs) == 0 {
+			return &Location{Error: errors.New("couldn't resolve hostname")}
+		}
+		ipstr = addrs[0]
+	}
 	ip := net.ParseIP(ipstr)
 	if ip == nil {
 		return &Location{Error: errors.New("couldn't parse ip")}
