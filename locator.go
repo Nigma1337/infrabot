@@ -117,7 +117,7 @@ func (l *locator) checkAWS(rawip net.IP) (bool, error) {
 		_, ipnetA, _ := net.ParseCIDR(string(ip))
 		if ipnetA.Contains(rawip) {
 			region := string(element.GetStringBytes("region"))
-			loc := Location{Region: region, IP: rawip, cloud: "AWS", Error: nil}
+			loc := Location{Region: region, IP: rawip, cloud: "aws", Error: nil}
 			if l.ch != nil {
 				l.ch <- loc
 				close(l.ch)

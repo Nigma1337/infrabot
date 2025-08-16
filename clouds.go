@@ -13,12 +13,13 @@ import (
 type clouds struct {
 	Hetzner   *hcloud.Client
 	Aws       awooga
-	Avaliable []string
+	Available []string
 }
 
 func (c *clouds) getCloudOpts(selected string) []discord.SelectOption {
 	var res []discord.SelectOption
-	for _, cloud := range c.Avaliable {
+	// Create a select option for each available cloud
+	for _, cloud := range c.Available {
 		if cloud == selected {
 			res = append(res, discord.SelectOption{Label: cloud, Value: cloud, Default: true})
 		} else {

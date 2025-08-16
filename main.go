@@ -140,7 +140,7 @@ func initClouds() *clouds {
 		case "hetzner":
 			token := configuredClouds.GetString("hetzner.token")
 			providers.Hetzner = hcloud.NewClient(hcloud.WithToken(token))
-			providers.Avaliable = append(providers.Avaliable, "hetzner")
+			providers.Available = append(providers.Available, "hetzner")
 		case "gcp":
 			log.Println("Tried to init gcp, but it's not implemented yet.")
 		case "aws":
@@ -185,12 +185,12 @@ func initClouds() *clouds {
 			if err != nil {
 				panic(err)
 			}
-			providers.Avaliable = append(providers.Avaliable, "aws")
+			providers.Available = append(providers.Available, "aws")
 		case "azure":
 			log.Println("Tried to init azure, but it's not implemented yet.")
 		}
 	}
-	log.Printf("Cloud providers initialized: %v", providers.Avaliable)
+	log.Printf("Cloud providers initialized: %v", providers.Available)
 	return &providers
 }
 
@@ -273,9 +273,44 @@ func (h *handler) cmdLocate(ctx context.Context, data cmdroute.CommandData) *api
 		return errorResponse(err)
 	}
 	location := h.l.locate(options.Arg)
+
+	if location.Error != nil {
+		return &api.InteractionResponseData{
+			Content: option.NewNullableString(
+				fmt.Sprintf("Could not locate %s , error: %v", options.Arg, location.Error),
+			),
+			Flags: discord.EphemeralMessage,
+		}
+	}
+
+	log.Printf("Located %s in %s on %s", options.Arg, location.Region, location.cloud)
+	// Check if cloud is available
+	if !h.provider.IsAvailable(location.cloud) {
+		return &api.InteractionResponseData{
+			Content: option.NewNullableString(
+				fmt.Sprintf("%s was found in %s on %s, which is not available.", options.Arg, location.Region, location.cloud),
+			),
+			Flags: discord.EphemeralMessage,
+		}
+	}
+
+	// Prefill selects with found region and cloud
+	opts, regions, instanceTypes := h.getCloudSelection(location.cloud, location.Region, "")
 	return &api.InteractionResponseData{
 		Content: option.NewNullableString(
-			fmt.Sprintf("%s was found in %s on %s", options.Arg, location.Region, location.cloud),
+			fmt.Sprintf("%s was found in %s on %s\nWanna spawn an instance there?", options.Arg, location.Region, location.cloud),
+		),
+		Components: discord.ComponentsPtr(
+			opts,
+			regions,
+			instanceTypes,
+			&discord.ActionRowComponent{
+				&discord.ButtonComponent{
+					Label:    "Spawn",
+					CustomID: discord.ComponentID("spawn_" + location.cloud),
+					Style:    discord.SuccessButtonStyle(),
+				},
+			},
 		),
 	}
 }
@@ -324,4 +359,13 @@ func errorResponse(err error) *api.InteractionResponseData {
 		Flags:           discord.EphemeralMessage,
 		AllowedMentions: &api.AllowedMentions{ /* none */ },
 	}
+}
+
+func (c *clouds) IsAvailable(name string) bool {
+	for _, n := range c.Available {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
